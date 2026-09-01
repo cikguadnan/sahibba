@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isTeacher() { return request.auth != null && request.auth.token.email == "mradnanmahmud@gmail.com" && request.auth.token.email_verified == true; }
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow create, update, delete: if isTeacher();
+      match /players/{playerId} { allow read, create, update: if true; allow delete: if isTeacher(); }
+      match /matches/{matchId} { allow read, update: if true; allow create, delete: if isTeacher(); }
+      match /challenges/{challengeId} { allow read, create: if true; allow update, delete: if isTeacher(); }
+    }
+    match /dictionary/{word} { allow read: if true; allow write: if isTeacher(); }
+  }
+}
