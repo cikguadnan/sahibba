@@ -18,6 +18,11 @@ service cloud.firestore {
       match /matches/{matchId} { allow read, update: if true; allow create, delete: if superuser() || (signedIn() && get(/databases/$(database)/documents/publicSessions/$(sessionCode)).data.teacherId == request.auth.uid); }
       match /challenges/{challengeId} { allow read, create: if true; allow update, delete: if superuser() || (signedIn() && get(/databases/$(database)/documents/publicSessions/$(sessionCode)).data.teacherId == request.auth.uid); }
     }
+    match /globalDictionary/{word} {
+      allow read: if true;
+      allow create, update: if approvedDomain() || superuser();
+      allow delete: if superuser();
+    }
     match /system/{document} { allow read, write: if superuser(); }
   }
 }
