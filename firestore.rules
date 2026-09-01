@@ -1,14 +1,23 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isTeacher() { return request.auth != null && request.auth.token.email == "mradnanmahmud@gmail.com" && request.auth.token.email_verified == true; }
-    match /sessions/{sessionId} {
-      allow read: if true;
-      allow create, update, delete: if isTeacher();
-      match /players/{playerId} { allow read, create, update: if true; allow delete: if isTeacher(); }
-      match /matches/{matchId} { allow read, update: if true; allow create, delete: if isTeacher(); }
-      match /challenges/{challengeId} { allow read, create: if true; allow update, delete: if isTeacher(); }
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function superuser() { return signedIn() && request.auth.token.email == "mradnanmahmud@gmail.com"; }
+    function approvedDomain() { return signedIn() && (request.auth.token.email.matches('.*@moe\\.edu\\.sg$') || request.auth.token.email.matches('.*@schools\\.gov\\.sg$')); }
+    function owner(teacherId) { return signedIn() && request.auth.uid == teacherId; }
+    match /teachers/{teacherId} {
+      allow create: if owner(teacherId) && (approvedDomain() || superuser());
+      allow read, update, delete: if owner(teacherId) || superuser();
+      match /{document=**} { allow read, write: if owner(teacherId) || superuser(); }
     }
-    match /dictionary/{word} { allow read: if true; allow write: if isTeacher(); }
+    match /publicSessions/{sessionCode} {
+      allow read: if true;
+      allow create: if (approvedDomain() || superuser()) && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if superuser() || (signedIn() && resource.data.teacherId == request.auth.uid);
+      match /players/{playerId} { allow read, create, update: if true; allow delete: if superuser() || (signedIn() && get(/databases/$(database)/documents/publicSessions/$(sessionCode)).data.teacherId == request.auth.uid); }
+      match /matches/{matchId} { allow read, update: if true; allow create, delete: if superuser() || (signedIn() && get(/databases/$(database)/documents/publicSessions/$(sessionCode)).data.teacherId == request.auth.uid); }
+      match /challenges/{challengeId} { allow read, create: if true; allow update, delete: if superuser() || (signedIn() && get(/databases/$(database)/documents/publicSessions/$(sessionCode)).data.teacherId == request.auth.uid); }
+    }
+    match /system/{document} { allow read, write: if superuser(); }
   }
 }
