@@ -1,4 +1,4 @@
-import {KAMUS_ASAS} from './kamus-asas.js';
+import {KAMUS_ASAS} from './kamus-47000.js';
 const style=document.createElement('link');style.rel='stylesheet';style.href='dashboard.css';document.head.append(style);
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const quickMenu=$('#quickMenu'),menuButton=$('#menuButton');
