@@ -11,7 +11,22 @@
     return match?.[1]||'';
   }
   function joinUrl(code){return code?`https://cikguadnan.github.io/sahibba/?join=${encodeURIComponent(code)}#join`:''}
+  function normalizeLiveButton(){
+    const actions=document.querySelector('#dashboard .dashActions');
+    if(!actions)return;
+    const candidates=[...actions.querySelectorAll('#liveGame,.liveProjectorBtn,[data-live-link]')];
+    if(!candidates.length)return;
+    const primary=actions.querySelector('#liveGame')||candidates[0];
+    candidates.forEach(el=>{if(el!==primary)el.remove()});
+    primary.id='liveGame';
+    primary.classList.add('liveProjectorBtn');
+    primary.dataset.liveLink='1';
+    primary.target='_blank';
+    primary.rel='noreferrer';
+    primary.textContent='▣ Buka Paparan Kelas';
+  }
   function syncOverview(){
+    normalizeLiveButton();
     const code=currentCode();
     const codeEl=document.querySelector('#teacherOverviewCode');
     const timeEl=document.querySelector('#teacherOverviewTime');
@@ -22,7 +37,8 @@
     if(timeEl)timeEl.textContent=limit?`${limit}s setiap giliran`:'Menunggu tetapan permainan';
     if(code&&qr)qr.src='https://quickchart.io/qr?size=180&margin=1&text='+encodeURIComponent(joinUrl(code));
     if(link)link.textContent=code?joinUrl(code):'Cipta permainan untuk mendapatkan pautan murid';
-    document.querySelectorAll('[data-live-link]').forEach(a=>a.href='live.html'+(code?'?code='+encodeURIComponent(code):''));
+    const live=document.querySelector('#liveGame');
+    if(live)live.href='live.html'+(code?'?code='+encodeURIComponent(code):'');
   }
   function addSidebarShortcuts(){
     const nav=document.querySelector('#dashboard .sideNav nav');
@@ -55,17 +71,15 @@
         </div>`;
       if(head)head.after(strip); else dash.prepend(strip);
     }
-    const actions=dash.querySelector('.dashActions');
-    if(actions&&!actions.querySelector('[data-live-link]')){
-      const existing=actions.querySelector('#liveGame,.liveProjectorBtn');
-      if(existing){existing.dataset.liveLink='1';existing.textContent='▣ Buka Paparan Kelas'}
-      else{
-        const a=document.createElement('a');a.className='liveProjectorBtn';a.dataset.liveLink='1';a.target='_blank';a.rel='noreferrer';a.textContent='▣ Buka Paparan Kelas';actions.prepend(a);
-      }
-    }
+    normalizeLiveButton();
     syncOverview();
     const label=document.querySelector('#sessionLabel');
     if(label&&!label.dataset.proObserved){label.dataset.proObserved='1';new MutationObserver(syncOverview).observe(label,{childList:true,subtree:true,characterData:true})}
+    const actions=dash.querySelector('.dashActions');
+    if(actions&&!actions.dataset.liveObserved){
+      actions.dataset.liveObserved='1';
+      new MutationObserver(()=>{normalizeLiveButton();syncOverview()}).observe(actions,{childList:true});
+    }
   }
   addEventListener('hashchange',()=>setTimeout(enhance,0));
   addEventListener('DOMContentLoaded',enhance);
