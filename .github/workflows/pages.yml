@@ -1,15 +1,19 @@
 name: Deploy Sahibba to GitHub Pages
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 concurrency:
   group: pages
   cancel-in-progress: true
+
 jobs:
   deploy:
     environment:
@@ -17,11 +21,47 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare static Sahibba site
+        run: |
+          mkdir -p _site
+          rsync -a ./ _site/ \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '_site' \
+            --exclude 'node_modules' \
+            --exclude 'dist' \
+            --exclude '.next'
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('_site/index.html')
+          html = p.read_text()
+          css = '<link rel="stylesheet" href="teacher-refresh.css">'
+          js = '<script src="teacher-refresh.js" defer></script>'
+          if 'teacher-refresh.css' not in html:
+              html = html.replace('</head>', css + '</head>')
+          if 'teacher-refresh.js' not in html:
+              html = html.replace('</body>', js + '</body>')
+          p.write_text(html)
+          PY
+
+          touch _site/.nojekyll
+          test -f _site/index.html
+          test -f _site/site.js
+          test -f _site/teacher-refresh.css
+          test -f _site/live.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
+
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
