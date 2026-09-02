@@ -1,6 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_SESSION_CODE,
+  ensureLiveMatch,
+  getPairingForPlayer,
+  recordLiveScore,
+  subscribeLiveMatch,
+} from "./live-game";
 
 type View = "home" | "join" | "lobby" | "game";
 const students = ["Aiman", "Harith", "Firdaus", "Hilman", "Irfan", "Faheem"];
@@ -10,15 +17,53 @@ const accepted = new Set(["SAYA", "SAYANG", "KUCING", "BUKU", "SEKOLAH", "GURU",
 function Logo() { return <div className="brand" aria-label="Sahibba Classroom"><div className="brandTiles">{"SAHIBBA".split("").map((l,i)=><span key={i}>{l}</span>)}</div><b>CLASSROOM</b></div>; }
 
 export default function GamePortal() {
-  const [view,setView]=useState<View>("home"), [name,setName]=useState(""), [code,setCode]=useState("4821"), [word,setWord]=useState(""), [score,setScore]=useState(24), [message,setMessage]=useState("Giliran anda");
+  const [view,setView]=useState<View>("home"), [name,setName]=useState(""), [code,setCode]=useState(DEFAULT_SESSION_CODE), [word,setWord]=useState(""), [score,setScore]=useState(0), [opponentScore,setOpponentScore]=useState(0), [message,setMessage]=useState("Giliran anda");
+  const [turn,setTurn]=useState(""), [liveConnected,setLiveConnected]=useState(false);
   const rack=["S","A","Y","A","N","G","U"];
+  const pairing=useMemo(()=>getPairingForPlayer(name||"Aiman"),[name]);
+  const opponent=pairing.players.find(player=>player.toLowerCase()!==(name||"Aiman").trim().toLowerCase())||pairing.players[1];
   const wordScore=useMemo(()=>word.split("").reduce((sum,l)=>sum+(tileValues[l]||0),0),[word]);
+
+  useEffect(()=>{
+    if(view!=="game"||!name.trim())return;
+    let unsubscribe=()=>undefined;
+    let active=true;
+    setLiveConnected(false);
+    ensureLiveMatch(code,pairing).then(ready=>{
+      if(!active||!ready)return;
+      unsubscribe=subscribeLiveMatch(code,pairing.id,match=>{
+        if(!active)return;
+        const me=match.players.findIndex(player=>player.toLowerCase()===name.trim().toLowerCase());
+        if(me>=0){
+          setScore(match.scores[me]);
+          setOpponentScore(match.scores[me===0?1:0]);
+        }
+        setTurn(match.turn);
+        setLiveConnected(true);
+      },()=>setLiveConnected(false));
+    });
+    return()=>{active=false;unsubscribe()};
+  },[view,name,code,pairing]);
+
   function join(e:React.FormEvent){e.preventDefault();if(name.trim()&&code.length===4)setView("lobby")}
-  function submitWord(){const clean=word.trim();if(!clean)return;if(accepted.has(clean)){setScore(s=>s+wordScore);setMessage(`✓ ${clean} diterima · +${wordScore} mata`);setWord("")}else setMessage(`${clean} belum ditemui dalam kamus`)}
+
+  async function submitWord(){
+    const clean=word.trim();
+    if(!clean)return;
+    if(accepted.has(clean)){
+      const saved=liveConnected?await recordLiveScore(code,pairing.id,name,wordScore,clean):false;
+      if(!saved)setScore(s=>s+wordScore);
+      setMessage(`✓ ${clean} diterima · +${wordScore} mata`);
+      setWord("");
+    }else setMessage(`${clean} belum ditemui dalam kamus`);
+  }
+
+  const isMyTurn=!turn||turn.toLowerCase()===name.trim().toLowerCase();
+
   return <main className="shell"><header><Logo/><div className="headerActions"><button aria-label="Pencapaian">🏆</button><button aria-label="Bantuan">★</button><button aria-label="Menu">☰</button></div></header>
-  {view==="home"&&<section className="hero"><div className="welcome"><span className="eyebrow">PERMAINAN KATA BAHASA MELAYU</span><h1>Sedia untuk<br/>bermain?</h1><p>Pilih peranan anda untuk mula.</p><div className="roleGrid"><button className="role student" onClick={()=>setView("join")}><span className="roleIcon">🎒</span><strong>Masuk Sebagai Murid</strong><small>Masukkan nama dan kod sesi</small><i>→</i></button><a className="role teacher" href="/teacher"><span className="roleIcon">📋</span><strong>Log Masuk Guru</strong><small>Cipta dan pantau permainan</small><i>→</i></a></div></div><aside className="sessionBoard"><div className="boardTop"><span>KOD SESI</span><div className="codeTiles">{"4821".split("").map((n,i)=><b key={i}>{n}</b>)}</div><em>◷ Sedang Menunggu</em></div><div className="joined"><strong>♟ 6 murid telah masuk</strong><div className="studentChips">{students.map(s=><span key={s}>● {s}</span>)}</div></div></aside></section>}
+  {view==="home"&&<section className="hero"><div className="welcome"><span className="eyebrow">PERMAINAN KATA BAHASA MELAYU</span><h1>Sedia untuk<br/>bermain?</h1><p>Pilih peranan anda untuk mula.</p><div className="roleGrid"><button className="role student" onClick={()=>setView("join")}><span className="roleIcon">🎒</span><strong>Masuk Sebagai Murid</strong><small>Masukkan nama dan kod sesi</small><i>→</i></button><a className="role teacher" href="/teacher"><span className="roleIcon">📋</span><strong>Log Masuk Guru</strong><small>Cipta dan pantau permainan</small><i>→</i></a></div></div><aside className="sessionBoard"><div className="boardTop"><span>KOD SESI</span><div className="codeTiles">{DEFAULT_SESSION_CODE.split("").map((n,i)=><b key={i}>{n}</b>)}</div><em>◷ Sedang Menunggu</em></div><div className="joined"><strong>♟ 6 murid telah masuk</strong><div className="studentChips">{students.map(s=><span key={s}>● {s}</span>)}</div></div></aside></section>}
   {view==="join"&&<section className="centerStage"><button className="back" onClick={()=>setView("home")}>← Kembali</button><form className="paperCard" onSubmit={join}><span className="bigIcon">🎒</span><p className="eyebrow">MASUK SEBAGAI MURID</p><h2>Sertai permainan</h2><label>Nama anda<input autoFocus value={name} onChange={e=>setName(e.target.value)} placeholder="Contoh: Aiman" maxLength={24}/></label><label>Kod sesi<input inputMode="numeric" value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,"").slice(0,4))} className="codeInput"/></label><button className="primary" type="submit">Masuk ke Lobi →</button><small>Tiada akaun atau kata laluan diperlukan.</small></form></section>}
-  {view==="lobby"&&<section className="centerStage"><div className="lobbyCard"><span className="pulse"/><p className="eyebrow">SESI 4821</p><h2>Hai, {name}!</h2><p>Menunggu cikgu memulakan padanan...</p><div className="matchReveal"><div><span>ANDA</span><strong>{name||"Aiman"}</strong></div><b>VS</b><div><span>LAWAN</span><strong>Harith</strong></div></div><button className="primary" onClick={()=>setView("game")}>Cuba Paparan Permainan →</button><small>Dalam kelas sebenar, paparan ini bermula secara automatik.</small></div></section>}
-  {view==="game"&&<section className="gameLayout"><div className="gameTop"><button className="back" onClick={()=>setView("home")}>← Keluar</button><div className="score"><span>{name||"Aiman"}<b>{score}</b></span><i>VS</i><span>Harith<b>19</b></span></div><span className="turn">● Giliran anda</span></div><div className="boardArea"><div className="miniBoard">{Array.from({length:81},(_,i)=><span key={i} className={i===40?"star":i%13===0?"bonus":""}>{i===40?"★":i%13===0?"DW":""}</span>)}</div><aside className="playPanel"><p className="eyebrow">BINA PERKATAAN</p><h2>{message}</h2><div className="rack">{rack.map((l,i)=><button key={i} onClick={()=>setWord(w=>w+l)}>{l}<small>{tileValues[l]}</small></button>)}</div><label>Perkataan<input value={word} onChange={e=>setWord(e.target.value.toUpperCase().replace(/[^A-Z]/g,""))} placeholder="Susun jubin atau taip"/></label><div className="scorePreview"><span>Skor perkataan</span><b>{wordScore} mata</b></div><button className="primary" onClick={submitWord}>Hantar Perkataan</button>{message.includes("belum")&&<button className="challenge">Minta Semakan Cikgu</button>}<p className="dictionaryNote">Kamus demo: SAYA, SAYANG, KUCING, BUKU, SEKOLAH, GURU, MURID, KELAS, MAIN, KATA dan BAHASA.</p></aside></div></section>}
+  {view==="lobby"&&<section className="centerStage"><div className="lobbyCard"><span className="pulse"/><p className="eyebrow">SESI {code}</p><h2>Hai, {name}!</h2><p>Menunggu cikgu memulakan padanan...</p><div className="matchReveal"><div><span>ANDA</span><strong>{name||"Aiman"}</strong></div><b>VS</b><div><span>LAWAN</span><strong>{opponent}</strong></div></div><button className="primary" onClick={()=>setView("game")}>Cuba Paparan Permainan →</button><small>Dalam kelas sebenar, paparan ini bermula secara automatik.</small></div></section>}
+  {view==="game"&&<section className="gameLayout"><div className="gameTop"><button className="back" onClick={()=>setView("home")}>← Keluar</button><div className="score"><span>{name||"Aiman"}<b>{score}</b></span><i>VS</i><span>{opponent}<b>{opponentScore}</b></span></div><span className="turn">{liveConnected?"● LANGSUNG":"○ LUAR TALIAN"} · {isMyTurn?"Giliran anda":`Giliran ${turn}`}</span></div><div className="boardArea"><div className="miniBoard">{Array.from({length:81},(_,i)=><span key={i} className={i===40?"star":i%13===0?"bonus":""}>{i===40?"★":i%13===0?"DW":""}</span>)}</div><aside className="playPanel"><p className="eyebrow">BINA PERKATAAN</p><h2>{message}</h2><div className="rack">{rack.map((l,i)=><button key={i} onClick={()=>setWord(w=>w+l)}>{l}<small>{tileValues[l]}</small></button>)}</div><label>Perkataan<input value={word} onChange={e=>setWord(e.target.value.toUpperCase().replace(/[^A-Z]/g,""))} placeholder="Susun jubin atau taip"/></label><div className="scorePreview"><span>Skor perkataan</span><b>{wordScore} mata</b></div><button className="primary" onClick={submitWord}>Hantar Perkataan</button>{message.includes("belum")&&<button className="challenge">Minta Semakan Cikgu</button>}<p className="dictionaryNote">Skor anda dan lawan kini diselaraskan melalui paparan langsung apabila Firestore tersedia.</p></aside></div></section>}
   </main>;
 }
