@@ -1,33 +1,167 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { auth, firebaseConfigured, googleProvider } from "../firebase";
-
-const initialMatches = [
-  {id:1,a:"Aiman",b:"Harith",as:34,bs:28,turn:"Harith",status:"Bermain"},
-  {id:2,a:"Firdaus",b:"Hilman",as:41,bs:19,turn:"Hilman",status:"Bermain"},
-  {id:3,a:"Irfan",b:"Faheem",as:22,bs:22,turn:"Irfan",status:"Bermain"},
-];
+import {
+  CLASS_PAIRINGS,
+  DEFAULT_SESSION_CODE,
+  ensureLiveMatch,
+  setSessionState,
+  subscribeAllMatches,
+  subscribeSession,
+  type LiveMatch,
+} from "../live-game";
+import styles from "./teacher-dashboard.module.css";
 
 const TEACHER_EMAIL="mradnanmahmud@gmail.com";
+
+function fallbackMatches(): LiveMatch[] {
+  return CLASS_PAIRINGS.map((pairing)=>({
+    id:pairing.id,
+    players:pairing.players,
+    scores:[0,0],
+    turn:pairing.players[0],
+    status:"waiting",
+  }));
+}
+
 export default function TeacherDashboard() {
-  const [user,setUser]=useState<User|null>(null),[authReady,setAuthReady]=useState(false),[authError,setAuthError]=useState("");
-  const [started,setStarted]=useState(false), [challenge,setChallenge]=useState<"pending"|"approved"|"rejected">("pending"), [selected,setSelected]=useState(1);
-  useEffect(()=>{if(!auth){setAuthReady(true);return}return onAuthStateChanged(auth,next=>{setUser(next);setAuthReady(true)})},[]);
-  async function login(){if(!auth)return;setAuthError("");try{const result=await signInWithPopup(auth,googleProvider);if(result.user.email?.toLowerCase()!==TEACHER_EMAIL){await signOut(auth);setAuthError("Akaun Google ini tidak dibenarkan sebagai guru.")}}catch{setAuthError("Log masuk dibatalkan atau tidak berjaya. Sila cuba lagi.")}}
-  if(!authReady)return <main className="loginStage"><div className="googleCard"><span className="pulse"/><h1>Memeriksa sesi...</h1></div></main>;
-  if(!firebaseConfigured)return <main className="loginStage"><div className="googleCard"><div className="googleMark">G</div><p className="eyebrow">PENYEDIAAN DIPERLUKAN</p><h1>Sambungkan Firebase</h1><p>Masukkan tetapan Firebase dalam fail <b>.env.local</b> untuk mengaktifkan log masuk Google.</p><a className="primary loginButton" href="/">Kembali ke laman utama</a></div></main>;
-  if(!user||user.email?.toLowerCase()!==TEACHER_EMAIL)return <main className="loginStage"><div className="googleCard"><div className="googleMark">G</div><p className="eyebrow">KHAS UNTUK GURU</p><h1>Log masuk ke Pusat Kawalan</h1><p>Gunakan akaun Google guru yang telah dibenarkan. Murid tidak memerlukan akaun.</p><button className="googleButton" onClick={login}><b>G</b> Teruskan dengan Google</button>{authError&&<p className="authError">{authError}</p>}<a className="backHome" href="/">← Kembali ke laman utama</a></div></main>;
+  const [user,setUser]=useState<User|null>(null);
+  const [authReady,setAuthReady]=useState(false);
+  const [authError,setAuthError]=useState("");
+  const [matches,setMatches]=useState<LiveMatch[]>(fallbackMatches());
+  const [started,setStarted]=useState(false);
+  const [paused,setPaused]=useState(false);
+  const [liveReady,setLiveReady]=useState(false);
+
+  useEffect(()=>{
+    if(!auth){setAuthReady(true);return}
+    return onAuthStateChanged(auth,next=>{setUser(next);setAuthReady(true)});
+  },[]);
+
+  useEffect(()=>{
+    if(!user||user.email?.toLowerCase()!==TEACHER_EMAIL)return;
+    let active=true;
+    Promise.all(CLASS_PAIRINGS.map(pairing=>ensureLiveMatch(DEFAULT_SESSION_CODE,pairing))).finally(()=>{
+      if(active)setLiveReady(true);
+    });
+    const unsubscribeMatches=subscribeAllMatches(DEFAULT_SESSION_CODE,next=>{
+      if(next.length)setMatches(next);
+      setLiveReady(true);
+    },()=>setLiveReady(false));
+    const unsubscribeSession=subscribeSession(DEFAULT_SESSION_CODE,session=>{
+      setStarted(session.started);
+      setPaused(session.paused);
+    });
+    return()=>{active=false;unsubscribeMatches();unsubscribeSession()};
+  },[user]);
+
+  async function login(){
+    if(!auth)return;
+    setAuthError("");
+    try{
+      const result=await signInWithPopup(auth,googleProvider);
+      if(result.user.email?.toLowerCase()!==TEACHER_EMAIL){
+        await signOut(auth);
+        setAuthError("Akaun Google ini tidak dibenarkan sebagai guru.");
+      }
+    }catch{
+      setAuthError("Log masuk dibatalkan atau tidak berjaya. Sila cuba lagi.");
+    }
+  }
+
+  async function toggleGame(){
+    const nextStarted=!started;
+    setStarted(nextStarted);
+    setPaused(false);
+    await setSessionState(DEFAULT_SESSION_CODE,{started:nextStarted,paused:false});
+  }
+
+  async function togglePause(){
+    const next=!paused;
+    setPaused(next);
+    await setSessionState(DEFAULT_SESSION_CODE,{started:true,paused:next});
+  }
+
+  const totalPoints=useMemo(()=>matches.reduce((sum,m)=>sum+m.scores[0]+m.scores[1],0),[matches]);
+  const activeMatches=matches.filter(m=>m.status==="playing").length;
+  const joinedStudents=useMemo(()=>new Set(matches.flatMap(m=>m.players).filter(name=>name!=="Menunggu lawan")).size,[matches]);
+  const recent=matches.filter(m=>m.lastWord).slice().reverse().slice(0,4);
+
+  if(!authReady)return <main className={styles.loginStage}><div className={styles.loginCard}><h1>Memeriksa sesi...</h1></div></main>;
+  if(!firebaseConfigured)return <main className={styles.loginStage}><div className={styles.loginCard}><p className={styles.eyebrow}>PENYEDIAAN DIPERLUKAN</p><h1>Sambungkan Firebase</h1><p>Masukkan tetapan Firebase dalam <b>.env.local</b> untuk mengaktifkan dashboard guru.</p><a className={styles.back} href="/">← Kembali ke laman utama</a></div></main>;
+  if(!user||user.email?.toLowerCase()!==TEACHER_EMAIL)return <main className={styles.loginStage}><div className={styles.loginCard}><p className={styles.eyebrow}>KHAS UNTUK GURU</p><h1>Pusat Kawalan Sahibba</h1><p>Log masuk menggunakan akaun Google guru yang dibenarkan.</p><button className={styles.google} onClick={login}>G · Teruskan dengan Google</button>{authError&&<p className={styles.error}>{authError}</p>}<a className={styles.back} href="/">← Kembali ke laman utama</a></div></main>;
+
   const teacherName=user.displayName||"Cikgu Adnan";
-  return <main className="teacherShell">
-    <aside className="sideNav"><a className="smallBrand" href="/">SAHIBBA <span>CLASSROOM</span></a><nav><b>⌂ Gambaran Keseluruhan</b><span>♟ Perlawanan</span><span>📖 Kamus Kelas</span><span>⚑ Semakan Perkataan</span><span>▦ Laporan</span></nav><div className="teacherUser"><div>G</div><span><b>{teacherName}</b><small>{user.email}</small></span><button onClick={()=>auth&&signOut(auth)}>Keluar</button></div></aside>
-    <section className="dashboard"><div className="dashHead"><div><p className="eyebrow">PUSAT KAWALAN GURU</p><h1>Sahibba 3G1</h1><p>Selasa, 1 September · Sesi 4821</p></div><div className="dashActions"><button className="outlineBtn">Paparkan Kod Besar</button><button className="primary compact" onClick={()=>setStarted(!started)}>{started?"Jeda Permainan":"Mulakan Padanan"}</button></div></div>
-      <div className="metricGrid"><article><span>MURID MASUK</span><strong>6<small>/6</small></strong><em>✓ Semua bersedia</em></article><article><span>PERLAWANAN</span><strong>3</strong><em>{started?"● Sedang berlangsung":"◷ Belum dimulakan"}</em></article><article><span>PERKATAAN SAH</span><strong>12</strong><em>Purata 4 setiap permainan</em></article><article className="attention"><span>PERLU SEMAKAN</span><strong>{challenge==="pending"?1:0}</strong><em>{challenge==="pending"?"Tindakan diperlukan":"Semua selesai"}</em></article></div>
-      <div className="dashboardGrid"><section className="panel matches"><div className="panelHead"><div><p className="eyebrow">PANTAUAN LANGSUNG</p><h2>Semua perlawanan</h2></div><span className="live">● LANGSUNG</span></div><div className="matchTable"><div className="tableHead"><span>PADANAN</span><span>SKOR</span><span>GILIRAN</span><span>STATUS</span></div>{initialMatches.map(m=><button key={m.id} className={selected===m.id?"selected":""} onClick={()=>setSelected(m.id)}><span><b>{m.a}</b> lwn {m.b}</span><strong>{m.as}–{m.bs}</strong><span>{m.turn}</span><em>{started?"● Bermain":"◷ Menunggu"}</em></button>)}</div><button className="viewBoard">Lihat papan Perlawanan {selected} →</button></section>
-        <aside className="panel review"><div className="panelHead"><div><p className="eyebrow">SEMAKAN</p><h2>Cabaran perkataan</h2></div><span className="count">{challenge==="pending"?1:0}</span></div>{challenge==="pending"?<div className="wordReview"><small>PERLAWANAN 2 · FIRDAUS</small><strong>“MENGGAMIT”</strong><p>Perkataan ini tidak ditemui dalam kamus semasa.</p><div><button onClick={()=>setChallenge("rejected")}>Tolak</button><button onClick={()=>setChallenge("approved")}>✓ Terima</button></div><label><input type="checkbox" defaultChecked/> Tambah ke Kamus Kelas</label></div>:<div className="emptyReview"><b>✓</b><p>Semua cabaran telah disemak.</p><button onClick={()=>setChallenge("pending")}>Pulihkan demo</button></div>}</aside>
+  const gameStatus=!started?"Belum dimulakan":paused?"Dijeda":"Sedang berlangsung";
+
+  return <main className={styles.shell}>
+    <aside className={styles.sidebar}>
+      <a className={styles.brand} href="/">SAHIBBA <span>CLASSROOM</span></a>
+      <nav className={styles.nav}>
+        <a className={styles.active} href="/teacher">⌂ Gambaran Keseluruhan</a>
+        <a href="#matches">♟ Perlawanan Langsung</a>
+        <a href="/teacher/live" target="_blank" rel="noreferrer">▣ Paparan Kelas</a>
+        <button type="button">⚑ Semakan Perkataan</button>
+        <button type="button">▦ Arkib & Laporan</button>
+      </nav>
+      <div className={styles.account}>
+        <div className={styles.avatar}>G</div>
+        <div className={styles.accountText}><b>{teacherName}</b><small>{user.email}</small></div>
+        <button className={styles.logout} onClick={()=>auth&&signOut(auth)}>Log keluar</button>
       </div>
-      <section className="dictionaryStrip"><div><p className="eyebrow">ENJIN PERKATAAN</p><h2>Kamus Sahibba Kelas</h2><p>Perkataan yang cikgu luluskan boleh ditambah terus untuk permainan seterusnya.</p></div><div><strong>3,248</strong><span>perkataan aktif</span></div><button className="outlineBtn">Urus Kamus →</button></section>
+    </aside>
+
+    <section className={styles.main}>
+      <div className={styles.topbar}>
+        <div><p className={styles.eyebrow}>PUSAT KAWALAN GURU</p><h1>Sahibba 3G1</h1><p className={styles.muted}>Pantau permainan, skor dan giliran dari satu tempat.</p></div>
+        <div className={styles.actions}>
+          <a className={styles.btnLive} href={`/teacher/live?code=${DEFAULT_SESSION_CODE}`} target="_blank" rel="noreferrer">▣ Buka Paparan Kelas</a>
+          {started&&<button className={styles.btn} onClick={togglePause}>{paused?"▶ Sambung":"Ⅱ Jeda"}</button>}
+          <button className={styles.btnPrimary} onClick={toggleGame}>{started?"Tamatkan Sesi":"Mulakan Permainan"}</button>
+        </div>
+      </div>
+
+      <section className={styles.sessionHero}>
+        <div>
+          <div className={styles.sessionMeta}><span className={styles.liveDot}><i className={styles.dot}/> {liveReady?"DATA LANGSUNG":"MENYAMBUNG"}</span><span>{gameStatus}</span></div>
+          <h2>{started&&!paused?"Kelas sedang bermain sekarang":"Sesi sedia untuk kelas"}</h2>
+          <p>Skor pada paparan ini akan berubah secara automatik apabila murid mendapat mata.</p>
+        </div>
+        <div className={styles.codeWrap}><span className={styles.codeLabel}>KOD SESI</span><strong className={styles.code}>{DEFAULT_SESSION_CODE}</strong></div>
+      </section>
+
+      <div className={styles.metrics}>
+        <article className={styles.metric}><span>MURID DALAM PADANAN</span><strong>{joinedStudents}</strong><small>{matches.length} perlawanan</small></article>
+        <article className={styles.metric}><span>PERLAWANAN AKTIF</span><strong>{activeMatches}</strong><small>{gameStatus}</small></article>
+        <article className={styles.metric}><span>JUMLAH MATA</span><strong>{totalPoints}</strong><small>Dikemas kini langsung</small></article>
+        <article className={styles.metric}><span>AKTIVITI TERKINI</span><strong>{recent.length}</strong><small>Perkataan direkod</small></article>
+      </div>
+
+      <div className={styles.contentGrid}>
+        <section className={styles.panel} id="matches">
+          <div className={styles.panelHead}><div><p className={styles.eyebrow}>PANTAUAN LANGSUNG</p><h2>Semua perlawanan</h2></div><span className={styles.statusPill}>● LIVE</span></div>
+          <div className={styles.table}>
+            <div className={styles.tableHeader}><span>PADANAN</span><span>SKOR</span><span>GILIRAN</span><span>STATUS</span></div>
+            {matches.map(match=><a key={match.id} className={styles.matchRow} href={`/teacher/live?code=${DEFAULT_SESSION_CODE}`} target="_blank" rel="noreferrer">
+              <span className={styles.players}><b>{match.players[0]} lwn {match.players[1]}</b><small>Perlawanan {match.id}</small></span>
+              <strong className={styles.score}>{match.scores[0]}–{match.scores[1]}</strong>
+              <span className={styles.turn}>{match.turn}</span>
+              <span className={styles.matchStatus}>{match.status==="playing"?"● Bermain":match.status==="finished"?"Selesai":"Menunggu"}</span>
+            </a>)}
+          </div>
+        </section>
+
+        <aside className={styles.panel}>
+          <div className={styles.panelHead}><div><p className={styles.eyebrow}>AKTIVITI</p><h2>Skor terkini</h2></div></div>
+          <div className={styles.recent}>{recent.length?recent.map(match=><div className={styles.activity} key={match.id}><b>{match.lastPlayer} +{match.lastPoints} mata</b><span>“{match.lastWord}” · Perlawanan {match.id}</span></div>):<div className={styles.empty}>Belum ada perkataan dimainkan.</div>}</div>
+          <div className={styles.quick}>
+            <a href={`/teacher/live?code=${DEFAULT_SESSION_CODE}`} target="_blank" rel="noreferrer"><span>Paparan penuh untuk projektor</span><b>→</b></a>
+            <a href="/"><span>Laman masuk murid</span><b>→</b></a>
+          </div>
+        </aside>
+      </div>
     </section>
   </main>;
 }
