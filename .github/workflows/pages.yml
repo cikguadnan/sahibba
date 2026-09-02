@@ -1,4 +1,4 @@
-name: Deploy Sahibba to GitHub Pages
+name: Validate Sahibba Static Site
 
 on:
   push:
@@ -7,61 +7,53 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: sahibba-validation
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      - name: Prepare static Sahibba site
+      - name: Verify production files
         run: |
-          mkdir -p _site
-          rsync -a ./ _site/ \
-            --exclude '.git' \
-            --exclude '.github' \
-            --exclude '_site' \
-            --exclude 'node_modules' \
-            --exclude 'dist' \
-            --exclude '.next'
+          set -e
+          test -f index.html
+          test -f site.js
+          test -f dashboard.css
+          test -f teacher-refresh.css
+          test -f teacher-refresh.js
+          test -f kamus-47000.js
+          test -f firebase-config.js
+          test -f live.html
+          test -f live.js
+          test -f live.css
+          test -f app/globals.css
 
+      - name: Check JavaScript syntax
+        run: |
+          node --check site.js
+          node --check live.js
+          node --check teacher-refresh.js
+          node --check firebase-config.js
+
+      - name: Verify production references
+        run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('_site/index.html')
-          html = p.read_text()
-          css = '<link rel="stylesheet" href="teacher-refresh.css">'
-          js = '<script src="teacher-refresh.js" defer></script>'
-          if 'teacher-refresh.css' not in html:
-              html = html.replace('</head>', css + '</head>')
-          if 'teacher-refresh.js' not in html:
-              html = html.replace('</body>', js + '</body>')
-          p.write_text(html)
+          index = Path('index.html').read_text()
+          live = Path('live.html').read_text()
+          site = Path('site.js').read_text()
+          required_index = ['app/globals.css', 'firebase-config.js', 'site.js']
+          required_live = ['live.css', 'firebase-config.js', 'live.js']
+          for ref in required_index:
+              assert ref in index, f'Missing index reference: {ref}'
+          for ref in required_live:
+              assert ref in live, f'Missing live reference: {ref}'
+          assert "./kamus-47000.js" in site, 'Dictionary import missing'
+          print('Static Sahibba validation passed.')
           PY
-
-          touch _site/.nojekyll
-          test -f _site/index.html
-          test -f _site/site.js
-          test -f _site/teacher-refresh.css
-          test -f _site/live.html
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
