@@ -48,12 +48,20 @@ export function getPairingForPlayer(playerName: string): Pairing {
     pairing.players.some((player) => player.toLowerCase() === clean.toLowerCase()),
   );
   if (known) return known;
-  return { id: `open-${clean.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "player"}`, players: [clean || "Pemain", "Menunggu lawan"] };
+  return {
+    id: `open-${clean.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "player"}`,
+    players: [clean || "Pemain", "Menunggu lawan"],
+  };
+}
+
+function sessionRef(code: string) {
+  if (!db) return null;
+  return doc(db, "publicSessions", code);
 }
 
 function matchRef(code: string, matchId: string) {
   if (!db) return null;
-  return doc(db, "sessions", code, "matches", matchId);
+  return doc(db, "publicSessions", code, "matches", matchId);
 }
 
 function toLiveMatch(id: string, data: DocumentData): LiveMatch {
@@ -125,7 +133,7 @@ export function subscribeAllMatches(
     return () => undefined;
   }
   return onSnapshot(
-    collection(db, "sessions", code, "matches"),
+    collection(db, "publicSessions", code, "matches"),
     (snapshot) => {
       const matches = snapshot.docs.map((item) => toLiveMatch(item.id, item.data()));
       matches.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
@@ -143,7 +151,9 @@ export async function recordLiveScore(code: string, matchId: string, playerName:
       const snap = await transaction.get(ref);
       if (!snap.exists()) throw new Error("Match does not exist");
       const current = toLiveMatch(snap.id, snap.data());
-      const playerIndex = current.players.findIndex((player) => player.toLowerCase() === playerName.trim().toLowerCase());
+      const playerIndex = current.players.findIndex(
+        (player) => player.toLowerCase() === playerName.trim().toLowerCase(),
+      );
       if (playerIndex < 0) throw new Error("Player is not part of this match");
       const opponentIndex = playerIndex === 0 ? 1 : 0;
       const nextScores: [number, number] = [...current.scores] as [number, number];
@@ -170,17 +180,19 @@ export async function recordLiveScore(code: string, matchId: string, playerName:
 }
 
 export function subscribeSession(code: string, onChange: (session: LiveSession) => void): Unsubscribe {
-  if (!db) return () => undefined;
-  return onSnapshot(doc(db, "sessions", code), (snap) => {
+  const ref = sessionRef(code);
+  if (!ref) return () => undefined;
+  return onSnapshot(ref, (snap) => {
     const data = snap.data() || {};
     onChange({ started: Boolean(data.started), paused: Boolean(data.paused) });
   });
 }
 
 export async function setSessionState(code: string, state: Partial<LiveSession>) {
-  if (!db) return false;
+  const ref = sessionRef(code);
+  if (!ref) return false;
   try {
-    await setDoc(doc(db, "sessions", code), { ...state, updatedAt: serverTimestamp() }, { merge: true });
+    await setDoc(ref, { ...state, updatedAt: serverTimestamp() }, { merge: true });
     return true;
   } catch (error) {
     console.warn("Unable to update live session", error);
