@@ -1,34 +1,60 @@
 # Sahibba Classroom
 
-Permainan kata Bahasa Melayu untuk kelas. Murid menyertai sesi tanpa akaun, dipadankan secara rawak dan bermain secara bergilir. Guru menggunakan Google Sign-In untuk membuka pusat kawalan, menyemak cabaran perkataan dan memantau semua perlawanan.
+Permainan kata Bahasa Melayu untuk kelas. Murid menyertai sesi tanpa akaun, dipadankan secara rawak dan bermain secara bergilir. Guru menggunakan Google Sign-In untuk membuka pusat kawalan, menyemak cabaran perkataan, melihat arkib permainan dan memantau semua perlawanan secara langsung.
 
-## Akaun guru
+## Versi yang digunakan di GitHub Pages
 
-Hanya akaun Google `mradnanmahmud@gmail.com` dibenarkan membuka pusat kawalan. Sekatan ini dilaksanakan dalam antaramuka dan `firestore.rules`.
+Aplikasi kelas yang sedang diterbitkan ialah versi statik di akar repositori:
 
-## Penyediaan Firebase
+- `index.html` — aplikasi utama murid dan guru
+- `site.js` — logik permainan, Firebase dan kemas kini masa nyata
+- `dashboard.css` + `teacher-refresh.css` — antaramuka dan penambahbaikan dashboard guru
+- `live.html`, `live.js`, `live.css` — paparan kelas/projektor secara langsung
+- `kamus-47000.js` — kamus asas permainan
 
-1. Cipta projek di Firebase Console.
-2. Aktifkan **Authentication → Sign-in method → Google**.
-3. Cipta pangkalan data **Cloud Firestore**.
-4. Daftarkan Web App dan salin konfigurasi Firebase.
-5. Salin `.env.example` kepada `.env.local` dan isi semua nilainya.
-6. Terbitkan `firestore.rules` dalam Firebase Console.
-7. Tambah domain tapak dalam **Authentication → Settings → Authorized domains**.
+Folder `app/` mengandungi prototaip Next/Vinext yang tidak digunakan oleh GitHub Pages pada masa ini.
 
-## Menjalankan projek
+## Firebase / Firestore
 
-```bash
-npm install
-npm run dev
-```
+Data langsung menggunakan struktur:
 
-## Pemboleh ubah persekitaran
+`publicSessions/{sessionCode}`
 
-`NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, dan `NEXT_PUBLIC_FIREBASE_APP_ID`.
+Subkoleksi utama:
 
-Jangan simpan `.env.local` dalam GitHub. Peraturan Firestore menjadi perlindungan sebenar untuk data guru.
+- `players`
+- `matches`
+- `challenges`
 
-## Status prototaip
+Kamus tambahan guru disimpan dalam `globalDictionary`.
 
-Aliran murid, paparan permainan, semakan perkataan dan pusat kawalan guru telah tersedia. Data perlawanan pada versi ini masih data demonstrasi; langkah seterusnya ialah menyambungkan semua tindakan permainan kepada koleksi Firestore secara masa nyata.
+Peraturan Firestore semasa disimpan dalam `firestore.rules`. Jangan ganti peraturan sedia ada dengan peraturan terbuka semasa menguji kerana struktur semasa sudah menyokong aliran Sahibba yang digunakan.
+
+## Ciri semasa
+
+- Murid masuk menggunakan nama + kod permainan
+- QR/pautan perkongsian permainan
+- Padanan murid secara rawak
+- Papan Sahibba 15×15 dan jubin sentuh
+- Kamus asas kira-kira 47,000 perkataan
+- Giliran dan skor disegerakkan melalui Firestore
+- Skor lawan dikemas kini secara langsung
+- Semakan perkataan oleh guru
+- Kamus global guru
+- Tamatkan permainan
+- Arkib permainan, ringkasan dan papan akhir
+- Padam permainan yang telah tamat
+- Dashboard guru yang dipertingkat
+- Paparan kelas/projektor langsung melalui `live.html?code=XXXX`
+
+## Deployment
+
+GitHub Actions melalui `.github/workflows/pages.yml` menyediakan folder `_site` dan menerbitkan aplikasi statik ke GitHub Pages setiap kali `main` dikemas kini. Workflow turut memastikan fail utama seperti `index.html`, `site.js`, `teacher-refresh.css` dan `live.html` wujud sebelum deployment diteruskan.
+
+## Nota keselamatan
+
+Akses guru menggunakan Google Sign-In dan peraturan Firestore. Murid tidak memerlukan akaun. Oleh sebab kemas kini perlawanan daripada murid masih dibenarkan pada dokumen match, peraturan Firestore boleh diperketatkan kemudian tanpa mengubah pengalaman masuk murid.
+
+## Status
+
+Versi semasa sudah menggunakan data Firestore masa nyata. Ia bukan lagi data demonstrasi. Fokus seterusnya ialah pengukuhan peraturan Firestore, pemadanan dan pengurusan sesi yang lebih fleksibel, serta penambahbaikan pengalaman guru dan murid.
